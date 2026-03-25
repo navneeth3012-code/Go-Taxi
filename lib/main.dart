@@ -559,6 +559,93 @@ class _BookNowScreenState extends State<BookNowScreen> {
         .toList();
   }
 
+  Future<void> _startBookingFlow() async {
+    Navigator.of(context).pop();
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFDF3E7),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned(
+                  top: -10,
+                  right: -10,
+                  child: Icon(
+                    Icons.toys,
+                    size: 120,
+                    color: Colors.orange.withValues(alpha: 0.18),
+                  ),
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.directions_car_filled,
+                        size: 40,
+                        color: Colors.orange,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Searching for a driver',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Hang tight, matching you with the best ride.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => BookingConfirmationScreen(
+          pickup: _pickup,
+          drop: _drop,
+          rideType: _rideType,
+          totalFare: _totalFare(),
+        ),
+      ),
+    );
+  }
+
   void _showFareBreakdown() {
     showDialog<void>(
       context: context,
@@ -575,19 +662,55 @@ class _BookNowScreenState extends State<BookNowScreen> {
           title: const Text('Fare Breakdown'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Base fare: ₹${base.toStringAsFixed(2)}'),
-              Text('Distance: ₹${distanceCharge.toStringAsFixed(2)}'),
-              Text('Time: ₹${timeCharge.toStringAsFixed(2)}'),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: Text(
+                  'Estimate: \u20B9${total.toStringAsFixed(2)}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text('Base fare: \u20B9${base.toStringAsFixed(2)}'),
+              Text('Distance: \u20B9${distanceCharge.toStringAsFixed(2)}'),
+              Text('Time: \u20B9${timeCharge.toStringAsFixed(2)}'),
               Text('Weather x Traffic: ${demandMultiplier.toStringAsFixed(2)}'),
               const SizedBox(height: 8),
-              Text('Subtotal: ₹${subtotal.toStringAsFixed(2)}'),
-              Text('Tax: ₹${tax.toStringAsFixed(2)}'),
+              Text('Subtotal: \u20B9${subtotal.toStringAsFixed(2)}'),
+              Text('Tax: \u20B9${tax.toStringAsFixed(2)}'),
               const SizedBox(height: 8),
               Text(
-                'Total: ₹${total.toStringAsFixed(2)}',
+                'Total: \u20B9${total.toStringAsFixed(2)}',
                 style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 46,
+                child: ElevatedButton(
+                  onPressed: _startBookingFlow,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  child: const Text('Book Now'),
+                ),
               ),
             ],
           ),
@@ -924,7 +1047,7 @@ class _BookNowScreenState extends State<BookNowScreen> {
                                 border: Border.all(color: Colors.blueGrey),
                               ),
                               child: Text(
-                                'Estimate: ₹${_totalFare().toStringAsFixed(2)}',
+                                'Estimate: \u20B9${_totalFare().toStringAsFixed(2)}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -949,7 +1072,28 @@ class _BookNowScreenState extends State<BookNowScreen> {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          child: const Text('View Fare'),
+                          child: Text(
+                            'View Fare - \u20B9${_totalFare().toStringAsFixed(0)}',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 48,
+                        child: ElevatedButton(
+                          onPressed: _startBookingFlow,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.black,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            textStyle: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          child: const Text('Book Now'),
                         ),
                       ),
                     ],
@@ -1044,6 +1188,133 @@ class _SuggestionCard extends StatelessWidget {
   }
 }
 
+class BookingConfirmationScreen extends StatelessWidget {
+  const BookingConfirmationScreen({
+    super.key,
+    required this.pickup,
+    required this.drop,
+    required this.rideType,
+    required this.totalFare,
+  });
+
+  final String pickup;
+  final String drop;
+  final String rideType;
+  final double totalFare;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Booking Confirmation'),
+        backgroundColor: const Color(0xFF203A43),
+        foregroundColor: Colors.white,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.green),
+              ),
+              child: Column(
+                children: const [
+                  Icon(
+                    Icons.check_circle,
+                    size: 44,
+                    color: Colors.green,
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Booking Confirmed!',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Your driver is on the way.',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _ConfirmRow(label: 'Pickup', value: pickup),
+            _ConfirmRow(label: 'Drop', value: drop),
+            _ConfirmRow(label: 'Ride', value: rideType),
+            _ConfirmRow(
+              label: 'Estimated Fare',
+              value: '\u20B9${totalFare.toStringAsFixed(2)}',
+            ),
+            const Spacer(),
+            SizedBox(
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                child: const Text('Done'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConfirmRow extends StatelessWidget {
+  const _ConfirmRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blueGrey.shade100),
+      ),
+      child: Row(
+        children: [
+          Text(
+            '$label:',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: Colors.black87),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class DriverPage extends StatelessWidget {
   const DriverPage({super.key});
 
@@ -1069,3 +1340,10 @@ class AdminPage extends StatelessWidget {
     );
   }
 }
+
+
+
+
+
+
+
