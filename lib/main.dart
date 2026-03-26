@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'socket_service.dart';
 
 void main() {
   runApp(const MainApp());
@@ -394,8 +395,44 @@ class _RoleButton extends StatelessWidget {
   }
 }
 
-class CustomerPage extends StatelessWidget {
+class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
+
+  @override
+  State<CustomerPage> createState() => _CustomerPageState();
+}
+
+class _CustomerPageState extends State<CustomerPage> {
+  static const String _socketServerUrl = 'http://10.0.2.2:4000';
+  String _lastNotification = 'No ride updates yet.';
+
+  @override
+  void initState() {
+    super.initState();
+    final socket = SocketService.instance;
+    socket.connect(serverUrl: _socketServerUrl);
+    socket.onCustomerRideStatus((data) {
+      final status = data['status']?.toString() ?? 'updated';
+      final driverName = data['driverName']?.toString() ?? 'Driver';
+      final message = 'Ride $status by $driverName';
+      setState(() => _lastNotification = message);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor:
+              status == 'accepted' ? Colors.green : Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    SocketService.instance.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -406,30 +443,41 @@ class CustomerPage extends StatelessWidget {
         foregroundColor: Colors.white,
       ),
       body: Center(
-        child: SizedBox(
-          width: 200,
-          height: 48,
-          child: ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => const BookNowScreen(),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _lastNotification,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: 200,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const BookNowScreen(),
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
-              ),
-              textStyle: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+                child: const Text('Book Now'),
               ),
             ),
-            child: const Text('Book Now'),
-          ),
+          ],
         ),
       ),
     );
@@ -1315,15 +1363,580 @@ class _ConfirmRow extends StatelessWidget {
   }
 }
 
-class DriverPage extends StatelessWidget {
+class DriverPage extends StatefulWidget {
   const DriverPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Text('Driver Page'),
+  State<DriverPage> createState() => _DriverPageState();
+}
+
+class _DriverPageState extends State<DriverPage> {
+  static const String _socketServerUrl = 'http://10.0.2.2:4000';
+  static const String _rideId = 'ride_1024';
+  bool _hasIncomingRequest = true;
+  String _lastAction = 'Waiting for a ride request';
+
+  @override
+  void initState() {
+    super.initState();
+    SocketService.instance.connect(serverUrl: _socketServerUrl);
+  }
+
+  void _notifyCustomer(bool accepted) {
+    final status = accepted ? 'accepted' : 'rejected';
+    SocketService.instance.emitDriverRideStatus(
+      rideId: _rideId,
+      status: status,
+      driverName: 'Arun',
+    );
+    setState(() {
+      _hasIncomingRequest = false;
+      _lastAction = accepted
+          ? 'You accepted the ride. Customer notified.'
+          : 'You rejected the ride. Customer notified.';
+    });
+
+    final message = accepted
+        ? 'Ride accepted. Customer notified in real-time.'
+        : 'Ride rejected. Customer notified in real-time.';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: accepted ? Colors.green : Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
       ),
+    );
+  }
+
+  @override
+  void dispose() {
+    SocketService.instance.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Driver Dashboard'),
+        backgroundColor: const Color(0xFF203A43),
+        foregroundColor: Colors.white,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: CircleAvatar(
+              backgroundColor: Colors.orange.withValues(alpha: 0.18),
+              child: const Icon(Icons.person, color: Colors.orange),
+            ),
+          ),
+        ],
+      ),
+      body: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'Good afternoon, Arun',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14,
+                            ),
+                          ),
+                          SizedBox(height: 6),
+                          Text(
+                            'Ready for the next ride?',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _StatusPill(
+                      label: 'Online',
+                      icon: Icons.flash_on,
+                      color: Colors.green,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                _DriverStatRow(
+                  stats: const [
+                    _DriverStat(
+                      icon: Icons.star,
+                      label: 'Rating',
+                      value: '4.9',
+                    ),
+                    _DriverStat(
+                      icon: Icons.route,
+                      label: 'Trips Today',
+                      value: '12',
+                    ),
+                    _DriverStat(
+                      icon: Icons.account_balance_wallet,
+                      label: 'Earnings',
+                      value: '\u20B9350',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                const _SectionTitle(title: 'Incoming Ride Request'),
+                const SizedBox(height: 10),
+                if (_hasIncomingRequest)
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          blurRadius: 16,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.local_taxi,
+                                color: Colors.orange,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: const [
+                                  Text(
+                                    'Ride for Sia Sharma',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    '2.4 km away · ETA 6 min',
+                                    style: TextStyle(color: Colors.black54),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Text(
+                                '\u20B9120',
+                                style: TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const _RidePoint(
+                          label: 'Pickup',
+                          value: 'City Center Mall, Gate 2',
+                          icon: Icons.radio_button_checked,
+                          color: Colors.green,
+                        ),
+                        const SizedBox(height: 8),
+                        const _RidePoint(
+                          label: 'Drop',
+                          value: 'Riverfront Park, West Gate',
+                          icon: Icons.location_on,
+                          color: Colors.redAccent,
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: const [
+                            _RideChip(
+                              icon: Icons.people,
+                              label: '2 riders',
+                            ),
+                            SizedBox(width: 8),
+                            _RideChip(
+                              icon: Icons.timer,
+                              label: '24 min',
+                            ),
+                            SizedBox(width: 8),
+                            _RideChip(
+                              icon: Icons.local_gas_station,
+                              label: '5.8 km',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () => _notifyCustomer(true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.black,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 14),
+                                  textStyle: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                child: const Text('Accept Ride'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => _notifyCustomer(false),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.redAccent,
+                                  side:
+                                      const BorderSide(color: Colors.redAccent),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 14),
+                                  textStyle: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                child: const Text('Reject'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.92),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.notifications_active,
+                            color: Colors.green),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _lastAction,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 22),
+                const _SectionTitle(title: 'Today\'s Summary'),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    children: const [
+                      _SummaryRow(
+                        label: 'Completed trips',
+                        value: '12',
+                      ),
+                      SizedBox(height: 10),
+                      _SummaryRow(
+                        label: 'Online time',
+                        value: '4h 20m',
+                      ),
+                      SizedBox(height: 10),
+                      _SummaryRow(
+                        label: 'Acceptance rate',
+                        value: '92%',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: () {},
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    child: const Text('Go Offline'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverStat {
+  const _DriverStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+}
+
+class _DriverStatRow extends StatelessWidget {
+  const _DriverStatRow({required this.stats});
+
+  final List<_DriverStat> stats;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: stats
+          .map(
+            (stat) => Expanded(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Column(
+                  children: [
+                    Icon(stat.icon, color: Colors.orange, size: 22),
+                    const SizedBox(height: 6),
+                    Text(
+                      stat.value,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      stat.label,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _RidePoint extends StatelessWidget {
+  const _RidePoint({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 8),
+        Text(
+          '$label:',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(color: Colors.black54),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RideChip extends StatelessWidget {
+  const _RideChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey.shade50,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.blueGrey),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  const _SummaryRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.black54,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
     );
   }
 }
