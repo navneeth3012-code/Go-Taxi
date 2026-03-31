@@ -1,8 +1,54 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'socket_service.dart';
 
 void main() {
   runApp(const MainApp());
+}
+
+String getSocketServerUrl() {
+  if (kIsWeb) {
+    return 'http://localhost:4000';
+  }
+  return 'http://10.0.2.2:4000';
+}
+
+class RideRequest {
+  const RideRequest({
+    required this.rideId,
+    required this.customerName,
+    required this.pickup,
+    required this.drop,
+    required this.rideType,
+    required this.fare,
+    required this.distanceKm,
+    required this.etaMinutes,
+  });
+
+  final String rideId;
+  final String customerName;
+  final String pickup;
+  final String drop;
+  final String rideType;
+  final double fare;
+  final double distanceKm;
+  final int etaMinutes;
+
+  factory RideRequest.fromMap(Map<String, dynamic> data) {
+    return RideRequest(
+      rideId: data['rideId']?.toString() ?? 'ride_unknown',
+      customerName: data['customerName']?.toString() ?? 'Customer',
+      pickup: data['pickup']?.toString() ?? 'Pickup',
+      drop: data['drop']?.toString() ?? 'Drop',
+      rideType: data['rideType']?.toString() ?? 'Ride',
+      fare: (data['fare'] as num?)?.toDouble() ?? 0,
+      distanceKm: (data['distanceKm'] as num?)?.toDouble() ?? 0,
+      etaMinutes: (data['etaMinutes'] as num?)?.toInt() ?? 0,
+    );
+  }
 }
 
 class MainApp extends StatelessWidget {
@@ -403,7 +449,7 @@ class CustomerPage extends StatefulWidget {
 }
 
 class _CustomerPageState extends State<CustomerPage> {
-  static const String _socketServerUrl = 'http://10.0.2.2:4000';
+  static final String _socketServerUrl = getSocketServerUrl();
   String _lastNotification = 'No ride updates yet.';
 
   @override
@@ -422,6 +468,22 @@ class _CustomerPageState extends State<CustomerPage> {
           content: Text(message),
           backgroundColor:
               status == 'accepted' ? Colors.green : Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
+    socket.onRideCancelled((data) {
+      final cancelledBy = data['cancelledBy']?.toString() ?? 'driver';
+      final fee = (data['fee'] as num?)?.toDouble() ?? 0;
+      final message = cancelledBy == 'driver'
+          ? 'Your ride has cancelled and you can retry now.'
+          : 'Customer cancelled the ride. Fee: \u20B9${fee.toStringAsFixed(0)}';
+      setState(() => _lastNotification = message);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -609,87 +671,21 @@ class _BookNowScreenState extends State<BookNowScreen> {
 
   Future<void> _startBookingFlow() async {
     Navigator.of(context).pop();
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFDF3E7),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.15),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned(
-                  top: -10,
-                  right: -10,
-                  child: Icon(
-                    Icons.toys,
-                    size: 120,
-                    color: Colors.orange.withValues(alpha: 0.18),
-                  ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.directions_car_filled,
-                        size: 40,
-                        color: Colors.orange,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Searching for a driver',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Hang tight, matching you with the best ride.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.black54),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    final rideId = 'ride_${DateTime.now().millisecondsSinceEpoch}';
+    final request = RideRequest(
+      rideId: rideId,
+      customerName: 'Sia Sharma',
+      pickup: _pickup,
+      drop: _drop,
+      rideType: _rideType,
+      fare: _totalFare(),
+      distanceKm: _distanceKm,
+      etaMinutes: _durationMin.round(),
     );
-
-    await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-    Navigator.of(context).pop();
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => BookingConfirmationScreen(
-          pickup: _pickup,
-          drop: _drop,
-          rideType: _rideType,
-          totalFare: _totalFare(),
-        ),
+        builder: (context) => CustomerRideFlowScreen(request: request),
       ),
     );
   }
@@ -1236,6 +1232,353 @@ class _SuggestionCard extends StatelessWidget {
   }
 }
 
+class CustomerRideFlowScreen extends StatefulWidget {
+  const CustomerRideFlowScreen({super.key, required this.request});
+
+  final RideRequest request;
+
+  @override
+  State<CustomerRideFlowScreen> createState() => _CustomerRideFlowScreenState();
+}
+
+class _CustomerRideFlowScreenState extends State<CustomerRideFlowScreen> {
+  static final String _socketServerUrl = getSocketServerUrl();
+  static const double _customerCancelFee = 35;
+
+  String _status = 'searching';
+  String _driverName = 'Driver';
+  String _statusMessage = 'Searching for the best driver...';
+  Offset _customerPosition = const Offset(0.78, 0.2);
+  Offset _driverPosition = const Offset(0.15, 0.82);
+  int _etaMinutes = 8;
+  Timer? _simTimer;
+  bool _hasRemoteUpdates = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final socket = SocketService.instance;
+    socket.connect(serverUrl: _socketServerUrl);
+    socket.onCustomerRideStatus(_handleRideStatus);
+    socket.onRideCancelled(_handleRideCancelled);
+    socket.onRideLocationUpdate(_handleLocationUpdate);
+    socket.emitCustomerRideRequest(
+      rideId: widget.request.rideId,
+      customerName: widget.request.customerName,
+      pickup: widget.request.pickup,
+      drop: widget.request.drop,
+      rideType: widget.request.rideType,
+      fare: widget.request.fare,
+      distanceKm: widget.request.distanceKm,
+      etaMinutes: widget.request.etaMinutes,
+    );
+    _etaMinutes = widget.request.etaMinutes;
+    _startLocalSimulation();
+  }
+
+  void _handleRideStatus(Map<String, dynamic> data) {
+    if (data['rideId']?.toString() != widget.request.rideId) return;
+    final status = data['status']?.toString() ?? 'updated';
+    final driverName = data['driverName']?.toString() ?? 'Driver';
+    setState(() {
+      _status = status;
+      _driverName = driverName;
+      if (status == 'accepted') {
+        _statusMessage = 'Driver accepted. $_driverName is on the way.';
+      } else if (status == 'rejected') {
+        _statusMessage = 'No driver accepted the ride. Please retry.';
+      }
+    });
+    if (!mounted) return;
+    if (status == 'accepted') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ride accepted by $_driverName'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else if (status == 'rejected') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ride rejected. Please retry.'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _handleRideCancelled(Map<String, dynamic> data) {
+    if (data['rideId']?.toString() != widget.request.rideId) return;
+    final cancelledBy = data['cancelledBy']?.toString() ?? 'driver';
+    final fee = (data['fee'] as num?)?.toDouble() ?? 0;
+    final message = cancelledBy == 'driver'
+        ? 'Your ride has cancelled and you can retry now.'
+        : 'You cancelled the ride. Fee: \u20B9${fee.toStringAsFixed(0)}';
+    setState(() {
+      _status = 'cancelled';
+      _statusMessage = message;
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _handleLocationUpdate(Map<String, dynamic> data) {
+    if (data['rideId']?.toString() != widget.request.rideId) return;
+    final driverX = (data['driverX'] as num?)?.toDouble();
+    final driverY = (data['driverY'] as num?)?.toDouble();
+    final customerX = (data['customerX'] as num?)?.toDouble();
+    final customerY = (data['customerY'] as num?)?.toDouble();
+    if (driverX == null ||
+        driverY == null ||
+        customerX == null ||
+        customerY == null) {
+      return;
+    }
+    setState(() {
+      _hasRemoteUpdates = true;
+      _driverPosition = Offset(driverX, driverY);
+      _customerPosition = Offset(customerX, customerY);
+      _etaMinutes = (data['etaMinutes'] as num?)?.toInt() ?? _etaMinutes;
+    });
+  }
+
+  void _startLocalSimulation() {
+    _simTimer?.cancel();
+    _simTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _hasRemoteUpdates) return;
+      if (_status != 'accepted') return;
+      setState(() {
+        _driverPosition = _moveTowards(
+          _driverPosition,
+          _customerPosition,
+          0.04,
+        );
+        _etaMinutes = math.max(1, _etaMinutes - 1);
+      });
+    });
+  }
+
+  Offset _moveTowards(Offset start, Offset target, double step) {
+    final dx = target.dx - start.dx;
+    final dy = target.dy - start.dy;
+    final distance = math.sqrt(dx * dx + dy * dy);
+    if (distance == 0) return start;
+    final t = math.min(1, step / distance);
+    return Offset(start.dx + dx * t, start.dy + dy * t);
+  }
+
+  Future<void> _confirmCustomerCancel() async {
+    final shouldCancel = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Cancel ride?'),
+          content: Text(
+            'Cancellation fee: \u20B9${_customerCancelFee.toStringAsFixed(0)}',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Keep Ride'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              child: const Text('Cancel Ride'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldCancel != true) return;
+    SocketService.instance.emitCustomerRideCancel(
+      rideId: widget.request.rideId,
+      customerName: widget.request.customerName,
+      fee: _customerCancelFee,
+    );
+    setState(() {
+      _status = 'cancelled';
+      _statusMessage = 'Your ride has cancelled and you can retry now.';
+    });
+  }
+
+  @override
+  void dispose() {
+    _simTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAccepted = _status == 'accepted';
+    final isSearching = _status == 'searching';
+    final isRejected = _status == 'rejected';
+    final isCancelled = _status == 'cancelled';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Customer Ride'),
+        backgroundColor: const Color(0xFF203A43),
+        foregroundColor: Colors.white,
+      ),
+      body: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _StatusBanner(
+                  icon: isAccepted
+                      ? Icons.check_circle
+                      : isRejected || isCancelled
+                          ? Icons.error
+                          : Icons.search,
+                  color: isAccepted
+                      ? Colors.green
+                      : isRejected || isCancelled
+                          ? Colors.redAccent
+                          : Colors.orange,
+                  title: isAccepted
+                      ? 'Ride Confirmed'
+                      : isRejected
+                          ? 'Ride Rejected'
+                          : isCancelled
+                              ? 'Ride Cancelled'
+                              : 'Searching for a driver',
+                  subtitle: _statusMessage,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: RideMapView(
+                    driverLabel: _driverName,
+                    customerLabel: widget.request.customerName,
+                    driverPosition: _driverPosition,
+                    customerPosition: _customerPosition,
+                    etaMinutes: _etaMinutes,
+                    showEta: isAccepted,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    if (isAccepted) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _QuickActionButton(
+                              label: 'Call Driver',
+                              icon: Icons.call,
+                              onTap: () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Calling $_driverName...'),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _QuickActionButton(
+                              label: 'Message',
+                              icon: Icons.message,
+                              onTap: () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Opening chat...'),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: _confirmCustomerCancel,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.redAccent,
+                            side: const BorderSide(color: Colors.redAccent),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                          ),
+                          child: const Text('Cancel Ride'),
+                        ),
+                      ),
+                    ],
+                    if (isSearching) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                          ),
+                          child: const Text('Back'),
+                        ),
+                      ),
+                    ],
+                    if (isRejected || isCancelled) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                          ),
+                          child: const Text('Retry Booking'),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class BookingConfirmationScreen extends StatelessWidget {
   const BookingConfirmationScreen({
     super.key,
@@ -1363,6 +1706,459 @@ class _ConfirmRow extends StatelessWidget {
   }
 }
 
+class DriverRideTrackingScreen extends StatefulWidget {
+  const DriverRideTrackingScreen({
+    super.key,
+    required this.request,
+    required this.driverName,
+  });
+
+  final RideRequest request;
+  final String driverName;
+
+  @override
+  State<DriverRideTrackingScreen> createState() =>
+      _DriverRideTrackingScreenState();
+}
+
+class _DriverRideTrackingScreenState extends State<DriverRideTrackingScreen> {
+  static const double _driverCancelFee = 40;
+  Timer? _timer;
+  Offset _driverPosition = const Offset(0.18, 0.82);
+  final Offset _customerPosition = const Offset(0.78, 0.2);
+  int _etaMinutes = 8;
+  String _statusMessage = "Heading to customer pickup.";
+  bool _isCancelled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _etaMinutes = widget.request.etaMinutes;
+    SocketService.instance.onRideCancelled(_handleRideCancelled);
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _isCancelled) return;
+      setState(() {
+        _driverPosition = _moveTowards(
+          _driverPosition,
+          _customerPosition,
+          0.04,
+        );
+        _etaMinutes = math.max(1, _etaMinutes - 1);
+      });
+      SocketService.instance.emitRideLocationUpdate(
+        rideId: widget.request.rideId,
+        driverX: _driverPosition.dx,
+        driverY: _driverPosition.dy,
+        customerX: _customerPosition.dx,
+        customerY: _customerPosition.dy,
+        etaMinutes: _etaMinutes,
+      );
+    });
+  }
+
+  void _handleRideCancelled(Map<String, dynamic> data) {
+    if (data["rideId"]?.toString() != widget.request.rideId) return;
+    final cancelledBy = data["cancelledBy"]?.toString() ?? "customer";
+    final fee = (data["fee"] as num?)?.toDouble() ?? 0;
+    final message = cancelledBy == "customer"
+        ? "Customer cancelled. Fee earned: \u20B9${fee.toStringAsFixed(0)}"
+        : "You cancelled the ride.";
+    setState(() {
+      _isCancelled = true;
+      _statusMessage = message;
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Offset _moveTowards(Offset start, Offset target, double step) {
+    final dx = target.dx - start.dx;
+    final dy = target.dy - start.dy;
+    final distance = math.sqrt(dx * dx + dy * dy);
+    if (distance == 0) return start;
+    final t = math.min(1, step / distance);
+    return Offset(start.dx + dx * t, start.dy + dy * t);
+  }
+
+  Future<void> _confirmDriverCancel() async {
+    final shouldCancel = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Reject ride?"),
+          content: Text(
+            "Cancellation fee: \u20B9${_driverCancelFee.toStringAsFixed(0)}",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text("Keep Ride"),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              child: const Text("Reject Ride"),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldCancel != true) return;
+    SocketService.instance.emitDriverRideCancel(
+      rideId: widget.request.rideId,
+      driverName: widget.driverName,
+      fee: _driverCancelFee,
+    );
+    setState(() {
+      _isCancelled = true;
+      _statusMessage = "You rejected the ride. Customer notified.";
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Driver Ride"),
+        backgroundColor: const Color(0xFF203A43),
+        foregroundColor: Colors.white,
+      ),
+      body: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _StatusBanner(
+                  icon: _isCancelled ? Icons.error : Icons.directions_car,
+                  color: _isCancelled ? Colors.redAccent : Colors.green,
+                  title: _isCancelled ? "Ride Cancelled" : "On the Way",
+                  subtitle: _statusMessage,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: RideMapView(
+                    driverLabel: widget.driverName,
+                    customerLabel: widget.request.customerName,
+                    driverPosition: _driverPosition,
+                    customerPosition: _customerPosition,
+                    etaMinutes: _etaMinutes,
+                    showEta: !_isCancelled,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _QuickActionButton(
+                            label: "Call Customer",
+                            icon: Icons.call,
+                            onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    "Calling ${widget.request.customerName}...",
+                                  ),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _QuickActionButton(
+                            label: "Message",
+                            icon: Icons.message,
+                            onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text("Opening chat..."),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: OutlinedButton(
+                        onPressed: _isCancelled ? null : _confirmDriverCancel,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.redAccent,
+                          side: const BorderSide(color: Colors.redAccent),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                        ),
+                        child: const Text("Reject Ride"),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusBanner extends StatelessWidget {
+  const _StatusBanner({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.black54),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class RideMapView extends StatelessWidget {
+  const RideMapView({
+    super.key,
+    required this.driverLabel,
+    required this.customerLabel,
+    required this.driverPosition,
+    required this.customerPosition,
+    required this.etaMinutes,
+    required this.showEta,
+  });
+
+  final String driverLabel;
+  final String customerLabel;
+  final Offset driverPosition;
+  final Offset customerPosition;
+  final int etaMinutes;
+  final bool showEta;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final height = constraints.maxHeight;
+        final driverLeft = driverPosition.dx * (width - 40);
+        final driverTop = driverPosition.dy * (height - 40);
+        final customerLeft = customerPosition.dx * (width - 40);
+        final customerTop = customerPosition.dy * (height - 40);
+
+        return Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            gradient: LinearGradient(
+              colors: [
+                Colors.blueGrey.shade900,
+                Colors.blueGrey.shade700,
+                Colors.blueGrey.shade500,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Stack(
+            children: [
+              Positioned(
+                top: 16,
+                left: 16,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    showEta ? "ETA $etaMinutes min" : "Awaiting updates",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: customerLeft,
+                top: customerTop,
+                child: _MapMarker(
+                  label: customerLabel,
+                  color: Colors.orange,
+                  icon: Icons.person_pin_circle,
+                ),
+              ),
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 800),
+                curve: Curves.easeInOut,
+                left: driverLeft,
+                top: driverTop,
+                child: _MapMarker(
+                  label: driverLabel,
+                  color: Colors.greenAccent,
+                  icon: Icons.local_taxi,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MapMarker extends StatelessWidget {
+  const _MapMarker({
+    required this.label,
+    required this.color,
+    required this.icon,
+  });
+
+  final String label;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: color, size: 32),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _QuickActionButton extends StatelessWidget {
+  const _QuickActionButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: ElevatedButton.icon(
+        onPressed: onTap,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+        ),
+        icon: Icon(icon),
+        label: Text(label),
+      ),
+    );
+  }
+}
 class DriverPage extends StatefulWidget {
   const DriverPage({super.key});
 
@@ -1371,23 +2167,59 @@ class DriverPage extends StatefulWidget {
 }
 
 class _DriverPageState extends State<DriverPage> {
-  static const String _socketServerUrl = 'http://10.0.2.2:4000';
-  static const String _rideId = 'ride_1024';
-  bool _hasIncomingRequest = true;
+  static final String _socketServerUrl = getSocketServerUrl();
+  bool _hasIncomingRequest = false;
+  RideRequest? _incomingRequest;
   String _lastAction = 'Waiting for a ride request';
+  final String _driverName = 'Arun';
 
   @override
   void initState() {
     super.initState();
-    SocketService.instance.connect(serverUrl: _socketServerUrl);
+    final socket = SocketService.instance;
+    socket.connect(serverUrl: _socketServerUrl);
+    socket.emitDriverReady();
+    socket.onDriverRideRequest((data) {
+      final request = RideRequest.fromMap(data);
+      setState(() {
+        _incomingRequest = request;
+        _hasIncomingRequest = true;
+        _lastAction = 'New ride request from ${request.customerName}.';
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Incoming ride for ${request.customerName}'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
+    socket.onRideCancelled((data) {
+      final cancelledBy = data['cancelledBy']?.toString() ?? 'customer';
+      final fee = (data['fee'] as num?)?.toDouble() ?? 0;
+      final message = cancelledBy == 'customer'
+          ? 'Customer cancelled. Fee earned: \u20B9${fee.toStringAsFixed(0)}'
+          : 'Driver cancelled the ride.';
+      setState(() => _lastAction = message);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
   }
 
-  void _notifyCustomer(bool accepted) {
-    final status = accepted ? 'accepted' : 'rejected';
-    SocketService.instance.emitDriverRideStatus(
-      rideId: _rideId,
-      status: status,
-      driverName: 'Arun',
+  void _respondToRide(bool accepted) {
+    final request = _incomingRequest;
+    if (request == null) return;
+    SocketService.instance.emitDriverRideResponse(
+      rideId: request.rideId,
+      accepted: accepted,
+      driverName: _driverName,
     );
     setState(() {
       _hasIncomingRequest = false;
@@ -1396,17 +2228,29 @@ class _DriverPageState extends State<DriverPage> {
           : 'You rejected the ride. Customer notified.';
     });
 
-    final message = accepted
-        ? 'Ride accepted. Customer notified in real-time.'
-        : 'Ride rejected. Customer notified in real-time.';
-
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Text(
+          accepted
+              ? 'Ride accepted. Customer notified in real-time.'
+              : 'Ride rejected. Customer notified in real-time.',
+        ),
         backgroundColor: accepted ? Colors.green : Colors.redAccent,
         behavior: SnackBarBehavior.floating,
       ),
     );
+
+    if (accepted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => DriverRideTrackingScreen(
+            request: request,
+            driverName: _driverName,
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -1502,7 +2346,7 @@ class _DriverPageState extends State<DriverPage> {
                 const SizedBox(height: 20),
                 const _SectionTitle(title: 'Incoming Ride Request'),
                 const SizedBox(height: 10),
-                if (_hasIncomingRequest)
+                                if (_hasIncomingRequest && _incomingRequest != null)
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -1536,18 +2380,18 @@ class _DriverPageState extends State<DriverPage> {
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
-                                children: const [
+                                children: [
                                   Text(
-                                    'Ride for Sia Sharma',
-                                    style: TextStyle(
+                                    "Ride for ${_incomingRequest?.customerName ?? 'Customer'}",
+                                    style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
-                                  SizedBox(height: 4),
+                                  const SizedBox(height: 4),
                                   Text(
-                                    '2.4 km away · ETA 6 min',
-                                    style: TextStyle(color: Colors.black54),
+                                    '${(_incomingRequest?.distanceKm ?? 0).toStringAsFixed(1)} km away - ETA ${_incomingRequest?.etaMinutes ?? 0} min',
+                                    style: const TextStyle(color: Colors.black54),
                                   ),
                                 ],
                               ),
@@ -1561,9 +2405,9 @@ class _DriverPageState extends State<DriverPage> {
                                 color: Colors.green.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(20),
                               ),
-                              child: const Text(
-                                '\u20B9120',
-                                style: TextStyle(
+                              child: Text(
+                                '\u20B9${(_incomingRequest?.fare ?? 0).toStringAsFixed(0)}',
+                                style: const TextStyle(
                                   color: Colors.green,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -1572,35 +2416,36 @@ class _DriverPageState extends State<DriverPage> {
                           ],
                         ),
                         const SizedBox(height: 16),
-                        const _RidePoint(
+                        _RidePoint(
                           label: 'Pickup',
-                          value: 'City Center Mall, Gate 2',
+                          value: _incomingRequest?.pickup ?? 'Pickup',
                           icon: Icons.radio_button_checked,
                           color: Colors.green,
                         ),
                         const SizedBox(height: 8),
-                        const _RidePoint(
+                        _RidePoint(
                           label: 'Drop',
-                          value: 'Riverfront Park, West Gate',
+                          value: _incomingRequest?.drop ?? 'Drop',
                           icon: Icons.location_on,
                           color: Colors.redAccent,
                         ),
                         const SizedBox(height: 14),
                         Row(
-                          children: const [
-                            _RideChip(
+                          children: [
+                            const _RideChip(
                               icon: Icons.people,
                               label: '2 riders',
                             ),
-                            SizedBox(width: 8),
+                            const SizedBox(width: 8),
                             _RideChip(
                               icon: Icons.timer,
-                              label: '24 min',
+                              label: '${_incomingRequest?.etaMinutes ?? 0} min',
                             ),
-                            SizedBox(width: 8),
+                            const SizedBox(width: 8),
                             _RideChip(
                               icon: Icons.local_gas_station,
-                              label: '5.8 km',
+                              label:
+                                  '${(_incomingRequest?.distanceKm ?? 0).toStringAsFixed(1)} km',
                             ),
                           ],
                         ),
@@ -1609,7 +2454,7 @@ class _DriverPageState extends State<DriverPage> {
                           children: [
                             Expanded(
                               child: ElevatedButton(
-                                onPressed: () => _notifyCustomer(true),
+                                onPressed: () => _respondToRide(true),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.black,
                                   foregroundColor: Colors.white,
@@ -1628,11 +2473,10 @@ class _DriverPageState extends State<DriverPage> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: OutlinedButton(
-                                onPressed: () => _notifyCustomer(false),
+                                onPressed: () => _respondToRide(false),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: Colors.redAccent,
-                                  side:
-                                      const BorderSide(color: Colors.redAccent),
+                                  side: const BorderSide(color: Colors.redAccent),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(14),
                                   ),
@@ -1659,8 +2503,7 @@ class _DriverPageState extends State<DriverPage> {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.notifications_active,
-                            color: Colors.green),
+                        const Icon(Icons.notifications_active, color: Colors.green),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -1953,6 +2796,20 @@ class AdminPage extends StatelessWidget {
     );
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
