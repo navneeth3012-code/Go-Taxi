@@ -521,7 +521,7 @@ class _CustomerPageState extends State<CustomerPage> {
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (context) => const BookNowScreen(),
+                      builder: (context) => const BookNowOptionsScreen(),
                     ),
                   );
                 },
@@ -540,6 +540,810 @@ class _CustomerPageState extends State<CustomerPage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class BookNowOptionsScreen extends StatelessWidget {
+  const BookNowOptionsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Choose Booking Type'),
+        backgroundColor: const Color(0xFF203A43),
+        foregroundColor: Colors.white,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 16),
+            const Text(
+              'How would you like to book?',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 20),
+            _RoleButton(
+              label: 'Quick Booking',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const BookNowScreen(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            _RoleButton(
+              label: 'Schedule Booking',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const UnifiedBookingScreen(
+                      initialMode: BookingMode.scheduleRide,
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            _RoleButton(
+              label: 'Shared Booking',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const UnifiedBookingScreen(),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum BookingMode { sharedNow, scheduleRide }
+
+enum SharedRideMode { join, start }
+
+enum ScheduleDateChoice { today, tomorrow, custom }
+
+enum ScheduleRideType { shared, privateGroup }
+
+class UnifiedBookingScreen extends StatefulWidget {
+  const UnifiedBookingScreen({
+    super.key,
+    this.initialMode = BookingMode.sharedNow,
+  });
+
+  final BookingMode initialMode;
+
+  @override
+  State<UnifiedBookingScreen> createState() => _UnifiedBookingScreenState();
+}
+
+class _UnifiedBookingScreenState extends State<UnifiedBookingScreen> {
+  final TextEditingController _pickupController = TextEditingController();
+  final TextEditingController _dropController = TextEditingController();
+
+  final List<String> _mockPlaces = const [
+    'City Center Mall',
+    'Central Station',
+    'Airport Terminal 1',
+    'Airport Terminal 2',
+    'Tech Park Gate 3',
+    'Riverfront Park',
+    'Old Town Market',
+    'Metro Hub',
+    'Eastside Plaza',
+    'West End Hospital',
+  ];
+
+  late BookingMode _bookingMode = widget.initialMode;
+  SharedRideMode _sharedRideMode = SharedRideMode.join;
+  int _seatsOffering = 2;
+  int _pickupFlexMinutes = 10;
+
+  String _timeSlot = '6:00 PM';
+  ScheduleDateChoice _dateChoice = ScheduleDateChoice.today;
+  DateTime? _customDate;
+  ScheduleRideType _scheduleRideType = ScheduleRideType.shared;
+  int _passengerCount = 1;
+
+  String _pickup = 'Current Location';
+  String _drop = 'Select Destination';
+
+  final List<_SharedRideOption> _nearbyRides = const [
+    _SharedRideOption(
+      price: 120,
+      etaMinutes: 6,
+      seatsLeft: 2,
+      matchPercent: 92,
+    ),
+    _SharedRideOption(
+      price: 95,
+      etaMinutes: 4,
+      seatsLeft: 1,
+      matchPercent: 88,
+    ),
+    _SharedRideOption(
+      price: 140,
+      etaMinutes: 8,
+      seatsLeft: 3,
+      matchPercent: 80,
+    ),
+  ];
+
+  @override
+  void dispose() {
+    _pickupController.dispose();
+    _dropController.dispose();
+    super.dispose();
+  }
+
+  List<String> _filterPlaces(String query) {
+    if (query.trim().isEmpty) {
+      return const [];
+    }
+    final lower = query.toLowerCase();
+    return _mockPlaces
+        .where((place) => place.toLowerCase().contains(lower))
+        .toList();
+  }
+
+  void _swapLocations() {
+    setState(() {
+      final pickupText = _pickupController.text;
+      _pickupController.text = _dropController.text;
+      _dropController.text = pickupText;
+      final pickup = _pickup;
+      _pickup = _drop;
+      _drop = pickup;
+    });
+  }
+
+  bool get _isSharedRide {
+    if (_bookingMode == BookingMode.sharedNow) {
+      return true;
+    }
+    return _scheduleRideType == ScheduleRideType.shared;
+  }
+
+  int _estimatedFare() {
+    int base = _bookingMode == BookingMode.sharedNow ? 120 : 140;
+    if (!_isSharedRide) {
+      base += 60;
+    }
+    base += (_passengerCount - 1) * 25;
+    if (_bookingMode == BookingMode.sharedNow &&
+        _sharedRideMode == SharedRideMode.start) {
+      base += 20;
+    }
+    return base;
+  }
+
+  int _savingsAmount() {
+    if (!_isSharedRide) {
+      return 0;
+    }
+    return 40 + (_passengerCount - 1) * 10;
+  }
+
+  String _ctaLabel() {
+    if (_bookingMode == BookingMode.sharedNow) {
+      return _sharedRideMode == SharedRideMode.join
+          ? 'Join Ride'
+          : 'Start Ride';
+    }
+    return 'Schedule Ride';
+  }
+
+  Future<void> _pickCustomDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _customDate ?? now,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 60)),
+    );
+    if (picked == null) return;
+    setState(() => _customDate = picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pickupSuggestions = _filterPlaces(_pickupController.text);
+    final dropSuggestions = _filterPlaces(_dropController.text);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Unified Booking'),
+        backgroundColor: const Color(0xFF203A43),
+        foregroundColor: Colors.white,
+      ),
+      bottomNavigationBar: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 12,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Estimated Fare',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '\u20B9${_estimatedFare()}',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (_isSharedRide)
+                          Text(
+                            'You Save \u20B9${_savingsAmount()}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.green,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.credit_card, size: 18),
+                        SizedBox(width: 6),
+                        Text('Cash'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 46,
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('${_ctaLabel()} requested.'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  child: Text(_ctaLabel()),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      body: Column(
+        children: [
+          SizedBox(
+            height: 280,
+            child: Stack(
+              children: [
+                Container(
+                  width: double.infinity,
+                  height: double.infinity,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.blueGrey.shade900,
+                        Colors.blueGrey.shade700,
+                        Colors.blueGrey.shade500,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.map,
+                        size: 48,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Pickup: $_pickup',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Drop: $_drop',
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Map View',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  child: Column(
+                    children: [
+                      _LocationField(
+                        controller: _pickupController,
+                        hintText: 'Pickup location',
+                        icon: Icons.my_location,
+                        color: Colors.orange,
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      if (pickupSuggestions.isNotEmpty)
+                        _SuggestionCard(
+                          suggestions: pickupSuggestions,
+                          onTap: (value) {
+                            setState(() {
+                              _pickupController.text = value;
+                              _pickup = value;
+                            });
+                          },
+                        ),
+                      const SizedBox(height: 10),
+                      _LocationField(
+                        controller: _dropController,
+                        hintText: 'Drop location',
+                        icon: Icons.flag,
+                        color: Colors.greenAccent,
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      if (dropSuggestions.isNotEmpty)
+                        _SuggestionCard(
+                          suggestions: dropSuggestions,
+                          onTap: (value) {
+                            setState(() {
+                              _dropController.text = value;
+                              _drop = value;
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  right: 20,
+                  top: 118,
+                  child: FloatingActionButton(
+                    heroTag: 'swapLocations',
+                    mini: true,
+                    backgroundColor: Colors.white,
+                    onPressed: _swapLocations,
+                    child: const Icon(Icons.swap_vert, color: Colors.black87),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Booking Mode',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ToggleButtons(
+                    isSelected: [
+                      _bookingMode == BookingMode.sharedNow,
+                      _bookingMode == BookingMode.scheduleRide,
+                    ],
+                    onPressed: (index) {
+                      setState(() {
+                        _bookingMode = index == 0
+                            ? BookingMode.sharedNow
+                            : BookingMode.scheduleRide;
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(14),
+                    selectedColor: Colors.black,
+                    fillColor: Colors.orange,
+                    color: Colors.black87,
+                    constraints: const BoxConstraints(minHeight: 44),
+                    children: const [
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 20),
+                        child: Text('Shared Now'),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 20),
+                        child: Text('Schedule Ride'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  if (_bookingMode == BookingMode.sharedNow) ...[
+                    const Text(
+                      'Ride Options',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    ToggleButtons(
+                      isSelected: [
+                        _sharedRideMode == SharedRideMode.join,
+                        _sharedRideMode == SharedRideMode.start,
+                      ],
+                      onPressed: (index) {
+                        setState(() {
+                          _sharedRideMode =
+                              index == 0 ? SharedRideMode.join : SharedRideMode.start;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(14),
+                      selectedColor: Colors.black,
+                      fillColor: Colors.orange,
+                      color: Colors.black87,
+                      constraints: const BoxConstraints(minHeight: 44),
+                      children: const [
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 16),
+                          child: Text('Join Shared Ride'),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 16),
+                          child: Text('Start Shared Ride'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (_sharedRideMode == SharedRideMode.join) ...[
+                      const Text(
+                        'Nearby Available Rides',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 10),
+                      ..._nearbyRides.map(
+                        (ride) => _SharedRideCard(
+                          option: ride,
+                          onTap: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Selected shared ride: \u20B9${ride.price}',
+                                ),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                    if (_sharedRideMode == SharedRideMode.start) ...[
+                      const Text(
+                        'Seats Offering',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: [1, 2, 3, 4]
+                            .map(
+                              (value) => ChoiceChip(
+                                label: Text('$value'),
+                                selected: _seatsOffering == value,
+                                onSelected: (_) {
+                                  setState(() => _seatsOffering = value);
+                                },
+                                selectedColor: Colors.orange,
+                              ),
+                            )
+                            .toList(),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Pickup Flexibility (mins)',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: [5, 10, 15]
+                            .map(
+                              (value) => ChoiceChip(
+                                label: Text('$value'),
+                                selected: _pickupFlexMinutes == value,
+                                onSelected: (_) {
+                                  setState(() => _pickupFlexMinutes = value);
+                                },
+                                selectedColor: Colors.orange,
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                  ] else ...[
+                    const Text(
+                      'Schedule Ride',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Time Slot Selection',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: ['6:00 PM', '7:00 PM', '8:00 PM']
+                          .map(
+                            (slot) => ChoiceChip(
+                              label: Text(slot),
+                              selected: _timeSlot == slot,
+                              onSelected: (_) {
+                                setState(() => _timeSlot = slot);
+                              },
+                              selectedColor: Colors.orange,
+                            ),
+                          )
+                          .toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Date Selection',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Today'),
+                          selected: _dateChoice == ScheduleDateChoice.today,
+                          onSelected: (_) {
+                            setState(
+                              () => _dateChoice = ScheduleDateChoice.today,
+                            );
+                          },
+                          selectedColor: Colors.orange,
+                        ),
+                        ChoiceChip(
+                          label: const Text('Tomorrow'),
+                          selected: _dateChoice == ScheduleDateChoice.tomorrow,
+                          onSelected: (_) {
+                            setState(
+                              () => _dateChoice = ScheduleDateChoice.tomorrow,
+                            );
+                          },
+                          selectedColor: Colors.orange,
+                        ),
+                        ChoiceChip(
+                          label: const Text('Custom'),
+                          selected: _dateChoice == ScheduleDateChoice.custom,
+                          onSelected: (_) async {
+                            setState(
+                              () => _dateChoice = ScheduleDateChoice.custom,
+                            );
+                            await _pickCustomDate();
+                          },
+                          selectedColor: Colors.orange,
+                        ),
+                      ],
+                    ),
+                    if (_dateChoice == ScheduleDateChoice.custom)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          _customDate == null
+                              ? 'Select a date'
+                              : 'Selected: ${_customDate!.day}/${_customDate!.month}/${_customDate!.year}',
+                          style: const TextStyle(color: Colors.black54),
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Ride Type',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    ToggleButtons(
+                      isSelected: [
+                        _scheduleRideType == ScheduleRideType.shared,
+                        _scheduleRideType == ScheduleRideType.privateGroup,
+                      ],
+                      onPressed: (index) {
+                        setState(() {
+                          _scheduleRideType = index == 0
+                              ? ScheduleRideType.shared
+                              : ScheduleRideType.privateGroup;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(14),
+                      selectedColor: Colors.black,
+                      fillColor: Colors.orange,
+                      color: Colors.black87,
+                      constraints: const BoxConstraints(minHeight: 44),
+                      children: const [
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 16),
+                          child: Text('Shared'),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 16),
+                          child: Text('Private Group'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Passenger Count',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        IconButton(
+                          onPressed: () {
+                            setState(() {
+                              if (_passengerCount > 1) {
+                                _passengerCount--;
+                              }
+                            });
+                          },
+                          icon: const Icon(Icons.remove_circle_outline),
+                        ),
+                        Text(
+                          '$_passengerCount seats required',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        IconButton(
+                          onPressed: () {
+                            setState(() {
+                              if (_passengerCount < 6) {
+                                _passengerCount++;
+                              }
+                            });
+                          },
+                          icon: const Icon(Icons.add_circle_outline),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SharedRideOption {
+  const _SharedRideOption({
+    required this.price,
+    required this.etaMinutes,
+    required this.seatsLeft,
+    required this.matchPercent,
+  });
+
+  final int price;
+  final int etaMinutes;
+  final int seatsLeft;
+  final int matchPercent;
+}
+
+class _SharedRideCard extends StatelessWidget {
+  const _SharedRideCard({required this.option, required this.onTap});
+
+  final _SharedRideOption option;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.group, color: Colors.orange),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '\u20B9${option.price} - ETA ${option.etaMinutes} mins',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Seats left: ${option.seatsLeft} • Match ${option.matchPercent}%',
+                      style: const TextStyle(color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
         ),
       ),
     );
